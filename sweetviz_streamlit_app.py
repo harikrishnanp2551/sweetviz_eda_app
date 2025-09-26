@@ -1,4 +1,3 @@
-# sweetviz_streamlit_app_enhanced.py
 
 import os
 import tempfile
