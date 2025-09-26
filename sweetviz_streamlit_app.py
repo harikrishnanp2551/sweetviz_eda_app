@@ -1,290 +1,386 @@
-import streamlit as st
-import pandas as pd
-import sweetviz as sv
-import streamlit.components.v1 as components
+# sweetviz_streamlit_app_enhanced.py
+
 import os
 import tempfile
-import json
-from io import StringIO
+import pandas as pd
+import streamlit as st
+import sweetviz as sv
+import streamlit.components.v1 as components
+from sklearn.model_selection import train_test_split
 
-# Set page configuration
+# ----------------------------
+# Page config & styling
+# ----------------------------
 st.set_page_config(
     page_title="Sweetviz Data Analysis App",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Custom CSS for better styling
-st.markdown("""
+st.markdown(
+    """
 <style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 0.5rem;
-    }
-    .sub-header {
-        font-size: 1.2rem;
-        color: #666;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .error-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #fee;
-        border: 1px solid #fcc;
-        color: #c33;
-        margin: 1rem 0;
-    }
-    .success-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #efe;
-        border: 1px solid #cfc;
-        color: #3c3;
-        margin: 1rem 0;
-    }
-    .info-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        background-color: #e7f3ff;
-        border: 1px solid #b3d9ff;
-        color: #0066cc;
-        margin: 1rem 0;
-    }
+    .main-header { font-size: 2.5rem; color: #1f77b4; text-align: center; margin-bottom: .5rem; }
+    .sub-header  { font-size: 1.1rem; color: #666; text-align: center; margin-bottom: 1.5rem; }
+    .error-box   { padding: 1rem; border-radius: .5rem; background-color: #fee; border: 1px solid #fcc; color: #c33; margin: 1rem 0; }
+    .success-box { padding: 1rem; border-radius: .5rem; background-color: #efe; border: 1px solid #cfc; color: #3c3; margin: 1rem 0; }
+    .info-box    { padding: 1rem; border-radius: .5rem; background-color: #e7f3ff; border: 1px solid #b3d9ff; color: #0066cc; margin: 1rem 0; }
+    .warning-box { padding: 1rem; border-radius: .5rem; background-color: #fff3cd; border: 1px solid #ffeaa7; color: #856404; margin: 1rem 0; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-def main():
-    # Header
-    st.markdown('<h1 class="main-header">📊 Sweetviz Data Analysis App</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Upload your CSV or JSON file for comprehensive automated EDA</p>', unsafe_allow_html=True)
+# ----------------------------
+# Helpers
+# ----------------------------
+def load_and_validate_data(uploaded_file, max_rows=100000):
+    """Load CSV/JSON and truncate beyond max_rows."""
+    try:
+        if uploaded_file.name.lower().endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.lower().endswith(".json"):
+            df = pd.read_json(uploaded_file)
+        else:
+            return None, "Unsupported file format!"
+        original_rows = len(df)
+        warning = None
+        if original_rows > max_rows:
+            df = df.head(max_rows)
+            warning = f"Dataset truncated from {original_rows:,} to {max_rows:,} rows."
+        return df, warning
+    except Exception as e:
+        return None, f"Error loading file: {e}"
 
-    # Sidebar
-    st.sidebar.header("Upload Data")
-    st.sidebar.markdown("---")
+def display_dataset_info(df, title):
+    st.subheader(f"📊 {title}")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("📈 Rows", f"{len(df):,}")
+    with c2:
+        st.metric("📊 Columns", len(df.columns))
+    with c3:
+        st.metric("💾 Memory Usage", f"{df.memory_usage(deep=True).sum() / 1024**2:.1f} MB")
+    with c4:
+        missing_pct = (df.isnull().sum().sum() / max(1, len(df) * max(1, len(df.columns)))) * 100
+        st.metric("❓ Missing Data", f"{missing_pct:.1f}%")
+    with st.expander(f"🔍 Preview {title}", expanded=False):
+        st.dataframe(df.head(10), use_container_width=True)
 
-    # File uploader
-    uploaded_file = st.sidebar.file_uploader(
-        "Choose a file",
-        type=['csv', 'json'],
-        help="Upload a CSV or JSON file (max 100k rows)"
+def generate_sweetviz_report(report_obj, report_name, download_filename):
+    """Render Sweetviz HTML once and offer a download."""
+    with st.spinner("Generating Sweetviz analysis... This may take a few minutes."):
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as tmp:
+                report_obj.show_html(
+                    filepath=tmp.name,
+                    open_browser=False,
+                    layout="vertical",
+                    scale=1.0,
+                )
+                html_path = tmp.name
+            with open(html_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
+            st.markdown(
+                f"""
+<div class="success-box">
+  <strong>✅ {report_name} Complete!</strong><br>
+  Scroll to explore interactive insights; use the button below to download the full HTML report.
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+            components.html(html_content, height=1000, scrolling=True)
+            os.unlink(html_path)
+            st.download_button(
+                label="📥 Download HTML Report",
+                data=html_content,
+                file_name=download_filename,
+                mime="text/html",
+            )
+            return True
+        except Exception as e:
+            st.error(f"❌ Error generating Sweetviz report: {e}")
+            return False
+
+def show_instructions():
+    st.markdown(
+        """
+## 🚀 How to proceed
+
+- Use the sidebar to select an analysis type and upload the required dataset(s).  
+- When a dataset is uploaded, the app previews rows and shows key stats before generating a Sweetviz report.  
+- Reports are embedded below and can be downloaded as standalone HTML.  
+""",
     )
 
-    if uploaded_file is not None:
-        try:
-            # Get file details
-            file_details = {
-                "filename": uploaded_file.name,
-                "filetype": uploaded_file.type,
-                "filesize": uploaded_file.size
-            }
+# ----------------------------
+# Main UI
+# ----------------------------
+st.markdown('<h1 class="main-header">📊 Sweetviz Data Analysis App</h1>', unsafe_allow_html=True)
+st.markdown('<p class="sub-header">Automated EDA for single datasets, comparisons, train/test splits, and sub-populations</p>', unsafe_allow_html=True)
 
-            # Display file info
-            st.sidebar.success(f"✅ File uploaded: {file_details['filename']}")
-            st.sidebar.info(f"📁 Size: {file_details['filesize']:,} bytes")
+st.sidebar.header("📋 Analysis Type")
+analysis_type = st.sidebar.selectbox(
+    "Choose Analysis Type",
+    [
+        "📊 Single Dataset Analysis",
+        "🔄 Compare Two Datasets",
+        "📈 Train/Test Split Comparison",
+        "🎯 Sub-population Comparison",
+    ],
+)
 
-            # Load data based on file type
-            with st.spinner("Loading data..."):
-                if uploaded_file.name.endswith('.csv'):
-                    df = pd.read_csv(uploaded_file)
-                elif uploaded_file.name.endswith('.json'):
-                    df = pd.read_json(uploaded_file)
-                else:
-                    st.error("❌ Unsupported file format!")
-                    return
+st.sidebar.markdown("---")
 
-            # Check data size and apply filtering if necessary
-            original_rows = len(df)
-
-            if original_rows > 100000:
-                error_html = f"""
-                <div class="error-box">
-                    <strong>⚠️ Large Dataset Warning</strong><br>
-                    Your dataset has <strong>{original_rows:,}</strong> rows, which exceeds the 100,000 row limit.
-                    <br><br>
-                    The analysis will be performed on the <strong>first 100,000 rows</strong> only.
-                </div>
-                """
-                st.markdown(error_html, unsafe_allow_html=True)
-
-                df = df.head(100000)
-                info_html = f"""
-                <div class="info-box">
-                    <strong>📊 Dataset Limited</strong><br>
-                    Now working with <strong>{len(df):,}</strong> rows for analysis.
-                </div>
-                """
-                st.markdown(info_html, unsafe_allow_html=True)
-
-            # Display basic data information
-            col1, col2, col3, col4 = st.columns(4)
-
-            with col1:
-                st.metric("📈 Rows", f"{len(df):,}")
-            with col2:
-                st.metric("📊 Columns", len(df.columns))
-            with col3:
-                st.metric("💾 Memory Usage", f"{df.memory_usage(deep=True).sum() / 1024**2:.1f} MB")
-            with col4:
-                missing_percentage = (df.isnull().sum().sum() / (len(df) * len(df.columns)) * 100)
-                st.metric("❓ Missing Data", f"{missing_percentage:.1f}%")
-
-            # Show data preview
-            st.subheader("📋 Data Preview")
-            st.dataframe(df.head(10), use_container_width=True)
-
-            # Column information
-            with st.expander("🔍 Column Information", expanded=False):
-                col_info = pd.DataFrame({
-                    'Column': df.columns,
-                    'Data Type': df.dtypes,
-                    'Non-Null Count': df.count(),
-                    'Null Count': df.isnull().sum(),
-                    'Null Percentage': (df.isnull().sum() / len(df) * 100).round(2)
-                })
-                st.dataframe(col_info, use_container_width=True)
-
-            # Generate Sweetviz report
-            st.subheader("🍭 Sweetviz Analysis Report")
-
-            if st.button("🚀 Generate Analysis Report", type="primary"):
-                with st.spinner("Generating Sweetviz analysis... This may take a few minutes."):
-                    try:
-                        # Create Sweetviz analysis
-                        report = sv.analyze(df)
-
-                        # Generate HTML report in a temporary file
-                        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as tmp_file:
-                            report.show_html(
-                                filepath=tmp_file.name,
-                                open_browser=False,
-                                layout='vertical',
-                                scale=1.0
-                            )
-                            html_file_path = tmp_file.name
-
-                        # Read the HTML file
-                        with open(html_file_path, 'r', encoding='utf-8') as f:
-                            html_content = f.read()
-
-                        # Display the HTML report using components
-                        success_html = """
-                        <div class="success-box">
-                            <strong>✅ Analysis Complete!</strong><br>
-                            Your Sweetviz report has been generated successfully. Scroll through the report below to explore your data insights.
-                        </div>
-                        """
-                        st.markdown(success_html, unsafe_allow_html=True)
-
-                        # Display the HTML report
-                        components.html(
-                            html_content,
-                            height=1000,
-                            scrolling=True
-                        )
-
-                        # Clean up temporary file
-                        os.unlink(html_file_path)
-
-                        # Provide download option for the report
-                        st.download_button(
-                            label="📥 Download HTML Report",
-                            data=html_content,
-                            file_name=f"sweetviz_report_{uploaded_file.name.split('.')[0]}.html",
-                            mime="text/html"
-                        )
-
-                    except Exception as e:
-                        st.error(f"❌ Error generating Sweetviz report: {str(e)}")
-                        st.error("Please check your data format and try again.")
-
-        except Exception as e:
-            st.error(f"❌ Error loading file: {str(e)}")
-            st.error("Please make sure your file is properly formatted.")
-
+# =========================================================
+# 1) Single Dataset Analysis
+# =========================================================
+if analysis_type == "📊 Single Dataset Analysis":
+    st.sidebar.header("📁 Upload Data")
+    uploaded_file = st.sidebar.file_uploader(
+        "Choose a file",
+        type=["csv", "json"],
+        key="single_file",
+        help="Upload a CSV or JSON file (max 100k rows)",
+    )
+    if uploaded_file is None:
+        show_instructions()
     else:
-        # Instructions when no file is uploaded
-        st.markdown("""
-        ## 🚀 How to Use This App
-
-        1. **📁 Upload your data file** using the sidebar file uploader
-        2. **📊 Preview your data** and check the basic statistics
-        3. **🍭 Generate Sweetviz report** by clicking the analysis button
-        4. **📥 Download the report** for future reference
-
-        ### 📋 Supported File Formats
-        - **CSV files** (.csv)
-        - **JSON files** (.json)
-
-        ### ⚠️ Important Notes
-        - Maximum dataset size: **100,000 rows**
-        - Files larger than 100k rows will be automatically truncated
-        - Analysis may take several minutes for large datasets
-        - The generated report includes comprehensive EDA visualizations
-
-        ### 🍭 About Sweetviz
-        Sweetviz is an open-source Python library that generates beautiful, 
-        high-density visualizations to kickstart EDA (Exploratory Data Analysis) 
-        with just two lines of code. It provides:
-
-        - **Detailed feature analysis** for each column
-        - **Correlation matrices** and associations
-        - **Missing value analysis**
-        - **Statistical summaries**
-        - **Distribution plots** and visualizations
-        """)
-
-        # Sample data section
-        st.markdown("### 📊 Try with Sample Data")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("🏠 Load Titanic Dataset"):
-                # Create sample Titanic dataset
-                sample_data = {
-                    'PassengerId': range(1, 101),
-                    'Survived': [0, 1] * 50,
-                    'Pclass': [1, 2, 3] * 33 + [1],
-                    'Age': [22 + i*0.5 for i in range(100)],
-                    'SibSp': [0, 1, 2] * 33 + [0],
-                    'Parch': [0, 1] * 50,
-                    'Fare': [7.25 + i*2 for i in range(100)],
-                    'Embarked': ['S', 'C', 'Q'] * 33 + ['S']
-                }
-                sample_df = pd.DataFrame(sample_data)
-
-                csv = sample_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Titanic Sample CSV",
-                    data=csv,
-                    file_name="titanic_sample.csv",
-                    mime="text/csv"
+        df, warning = load_and_validate_data(uploaded_file)
+        if df is None:
+            st.error(f"❌ {warning}")
+        else:
+            if warning:
+                st.markdown(
+                    f"""
+<div class="warning-box">
+  <strong>⚠️ Dataset Size Warning</strong><br>{warning}
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
+            st.sidebar.success(f"✅ File uploaded: {uploaded_file.name}")
+            st.sidebar.info(f"📁 Size: {uploaded_file.size:,} bytes")
+            display_dataset_info(df, "Dataset Overview")
+            target_feature = st.selectbox(
+                "🎯 Select Target Feature (Optional)",
+                ["None"] + list(df.columns),
+                help="Improve insights by specifying the target",
+            )
+            if st.button("🚀 Generate Analysis Report", type="primary"):
+                target_feat = None if target_feature == "None" else target_feature
+                report = sv.analyze([df, uploaded_file.name], target_feat=target_feat)
+                generate_sweetviz_report(
+                    report,
+                    "Analysis",
+                    f"sweetviz_analysis_{uploaded_file.name.split('.')[0]}.html",
                 )
 
-        with col2:
-            if st.button("🏪 Load Sales Dataset"):
-                # Create sample sales dataset
-                import random
-                sample_sales = {
-                    'Date': pd.date_range('2023-01-01', periods=100),
-                    'Product': [f'Product_{chr(65+i%5)}' for i in range(100)],
-                    'Sales': [random.randint(100, 1000) for _ in range(100)],
-                    'Quantity': [random.randint(1, 50) for _ in range(100)],
-                    'Price': [random.uniform(10, 100) for _ in range(100)],
-                    'Region': ['North', 'South', 'East', 'West'] * 25
-                }
-                sample_sales_df = pd.DataFrame(sample_sales)
+# =========================================================
+# 2) Compare Two Datasets
+# =========================================================
+elif analysis_type == "🔄 Compare Two Datasets":
+    st.sidebar.header("📁 Upload Datasets")
+    c1, c2 = st.sidebar.columns(2)
+    with c1:
+        file1 = st.file_uploader(
+            "Source Dataset",
+            type=["csv", "json"],
+            key="src_file",
+            help="First dataset to compare",
+        )
+    with c2:
+        file2 = st.file_uploader(
+            "Compare Dataset",
+            type=["csv", "json"],
+            key="cmp_file",
+            help="Second dataset to compare",
+        )
+    if not file1 or not file2:
+        show_instructions()
+    else:
+        df1, warn1 = load_and_validate_data(file1)
+        df2, warn2 = load_and_validate_data(file2)
+        if df1 is None or df2 is None:
+            if df1 is None:
+                st.error(f"❌ Source Dataset: {warn1}")
+            if df2 is None:
+                st.error(f"❌ Compare Dataset: {warn2}")
+        else:
+            if warn1:
+                st.warning(f"⚠️ Source Dataset: {warn1}")
+            if warn2:
+                st.warning(f"⚠️ Compare Dataset: {warn2}")
+            colA, colB = st.columns(2)
+            with colA:
+                display_dataset_info(df1, f"Source Dataset ({file1.name})")
+            with colB:
+                display_dataset_info(df2, f"Compare Dataset ({file2.name})")
+            common_cols = set(df1.columns) & set(df2.columns)
+            if len(common_cols) == 0:
+                st.error("❌ Datasets have no common columns; comparison may not be meaningful.")
+            else:
+                st.success(f"✅ Found {len(common_cols)} common columns for comparison")
+            all_columns = list(set(df1.columns) | set(df2.columns))
+            target_feature = st.selectbox(
+                "🎯 Select Target Feature (Optional)",
+                ["None"] + all_columns,
+                help="Must exist in both datasets if selected",
+            )
+            if st.button("🔄 Generate Comparison Report", type="primary"):
+                target_feat = None if target_feature == "None" else target_feature
+                if target_feat and (target_feat not in df1.columns or target_feat not in df2.columns):
+                    st.error(f"❌ Target feature '{target_feat}' not found in both datasets.")
+                else:
+                    compare_report = sv.compare(
+                        source=[df1, file1.name],
+                        compare=[df2, file2.name],
+                        target_feat=target_feat,
+                    )
+                    generate_sweetviz_report(
+                        compare_report,
+                        "Comparison Analysis",
+                        f"sweetviz_compare_{file1.name.split('.')[0]}_vs_{file2.name.split('.')[0]}.html",
+                    )
 
-                csv = sample_sales_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Sales Sample CSV",
-                    data=csv,
-                    file_name="sales_sample.csv",
-                    mime="text/csv"
+# =========================================================
+# 3) Train/Test Split Comparison
+# =========================================================
+elif analysis_type == "📈 Train/Test Split Comparison":
+    st.sidebar.header("📁 Upload Dataset")
+    uploaded_file = st.sidebar.file_uploader(
+        "Choose a file", type=["csv", "json"], key="split_file"
+    )
+    if uploaded_file is None:
+        show_instructions()
+    else:
+        df, warning = load_and_validate_data(uploaded_file)
+        if df is None:
+            st.error(f"❌ {warning}")
+        else:
+            if warning:
+                st.warning(f"⚠️ {warning}")
+            display_dataset_info(df, "Full Dataset")
+            st.subheader("⚙️ Split Configuration")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                train_size = st.slider("Training Set Size", 0.1, 0.9, 0.8, 0.05)
+            with c2:
+                random_state = st.number_input("Random State", 0, 10000, 42)
+            with c3:
+                stratify_col = st.selectbox(
+                    "Stratify by Column (Optional)",
+                    ["None"] + list(df.columns),
+                    help="Maintain class distribution in splits",
                 )
+            target_feature = st.selectbox(
+                "🎯 Select Target Feature (Optional)",
+                ["None"] + list(df.columns),
+            )
+            if st.button("📈 Generate Train/Test Comparison", type="primary"):
+                try:
+                    stratify = df[stratify_col] if stratify_col != "None" else None
+                    train_df, test_df = train_test_split(
+                        df, train_size=train_size, random_state=random_state, stratify=stratify
+                    )
+                    cA, cB = st.columns(2)
+                    with cA:
+                        display_dataset_info(train_df, f"Training Set ({len(train_df):,} rows)")
+                    with cB:
+                        display_dataset_info(test_df, f"Test Set ({len(test_df):,} rows)")
+                    target_feat = None if target_feature == "None" else target_feature
+                    compare_report = sv.compare(
+                        source=[train_df, "Training Set"],
+                        compare=[test_df, "Test Set"],
+                        target_feat=target_feat,
+                    )
+                    generate_sweetviz_report(
+                        compare_report,
+                        "Train/Test Comparison",
+                        f"sweetviz_train_test_{uploaded_file.name.split('.')[0]}.html",
+                    )
+                except Exception as e:
+                    st.error(f"❌ Error creating train/test split: {e}")
 
-if __name__ == "__main__":
-    main()
+# =========================================================
+# 4) Sub-population Comparison
+# =========================================================
+elif analysis_type == "🎯 Sub-population Comparison":
+    st.sidebar.header("📁 Upload Dataset")
+    uploaded_file = st.sidebar.file_uploader(
+        "Choose a file", type=["csv", "json"], key="subpop_file"
+    )
+    if uploaded_file is None:
+        show_instructions()
+    else:
+        df, warning = load_and_validate_data(uploaded_file)
+        if df is None:
+            st.error(f"❌ {warning}")
+        else:
+            if warning:
+                st.warning(f"⚠️ {warning}")
+            display_dataset_info(df, "Full Dataset")
+            st.subheader("⚙️ Sub-population Configuration")
+            condition_column = st.selectbox(
+                "📊 Select Column for Grouping", df.columns
+            )
+            if condition_column:
+                unique_vals = df[condition_column].dropna().unique()
+                if len(unique_vals) < 2:
+                    st.error("❌ Selected column must have at least 2 unique values for comparison.")
+                else:
+                    if len(unique_vals) <= 20 or df[condition_column].dtype == "object":
+                        condition_value = st.selectbox(
+                            f"Select Value for Group 1 ({condition_column})", unique_vals
+                        )
+                        condition_series = df[condition_column] == condition_value
+                        group1_name = f"{condition_column}={condition_value}"
+                        group2_name = f"{condition_column}≠{condition_value}"
+                    else:
+                        threshold = st.number_input(
+                            f"Threshold for {condition_column}",
+                            value=float(pd.to_numeric(df[condition_column], errors="coerce").median()),
+                            help="Group 1: values <= threshold, Group 2: values > threshold",
+                        )
+                        condition_series = pd.to_numeric(
+                            df[condition_column], errors="coerce"
+                        ) <= threshold
+                        group1_name = f"{condition_column}≤{threshold}"
+                        group2_name = f"{condition_column}>{threshold}"
+                    g1, g2 = int(condition_series.sum()), int(len(df) - condition_series.sum())
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.metric("📊 Group 1 Size", f"{g1:,}")
+                        st.caption(group1_name)
+                    with c2:
+                        st.metric("📊 Group 2 Size", f"{g2:,}")
+                        st.caption(group2_name)
+                    if g1 == 0 or g2 == 0:
+                        st.error("❌ One of the groups is empty. Adjust the condition.")
+                    else:
+                        target_feature = st.selectbox(
+                            "🎯 Select Target Feature (Optional)", ["None"] + list(df.columns)
+                        )
+                        force_num_cols = st.multiselect(
+                            "🔢 Force Numerical Treatment (optional)", list(df.columns)
+                        )
+                        if st.button("🎯 Generate Sub-population Comparison", type="primary"):
+                            try:
+                                feat_cfg = sv.FeatureConfig(force_num=force_num_cols) if force_num_cols else None
+                                target_feat = None if target_feature == "None" else target_feature
+                                compare_report = sv.compare_intra(
+                                    df,
+                                    condition_series,
+                                    [group1_name, group2_name],
+                                    feat_cfg=feat_cfg,
+                                    target_feat=target_feat,
+                                )
+                                generate_sweetviz_report(
+                                    compare_report,
+                                    "Sub-population Comparison",
+                                    f"sweetviz_subpop_{uploaded_file.name.split('.')[0]}.html",
+                                )
+                            except Exception as e:
+                                st.error(f"❌ Error creating sub-population comparison: {e}")
