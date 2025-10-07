@@ -2,9 +2,7 @@
 
 A comprehensive data analysis web application built with Streamlit and Sweetviz for automated Exploratory Data Analysis (EDA) with advanced comparison capabilities.
 
-## 🚀 New Features
-
-### 📊 Four Analysis Types Available:
+### Four Analysis Types Available:
 
 1. **Single Dataset Analysis**
    - Upload one dataset for comprehensive EDA
@@ -27,15 +25,13 @@ A comprehensive data analysis web application built with Streamlit and Sweetviz 
    - Group by categorical values or numerical thresholds  
    - Example: Compare different customer segments, age groups, etc.
 
-## 🎯 Key Features
+##  Key Features
 
 🚀 **Easy File Upload**: Support for CSV and JSON files  
 📊 **Multiple Analysis Types**: Single, comparison, split, and sub-population analysis  
 🍭 **Full Sweetviz Integration**: All three core functions (analyze, compare, compare_intra)  
 📥 **Download Reports**: Export all analysis types as HTML files  
-⚠️ **Large Dataset Handling**: Automatic filtering for datasets > 100k rows  
-🎨 **Beautiful UI**: Clean, professional interface with intuitive navigation  
-⚙️ **Flexible Configuration**: Target features, stratification, grouping options  
+⚠️ **Large Dataset Handling**: Automatic filtering for datasets > 100k rows   
 
 ## 📋 Analysis Examples
 
