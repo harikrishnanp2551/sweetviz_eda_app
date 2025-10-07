@@ -12,7 +12,6 @@ from sklearn.model_selection import train_test_split
 # ----------------------------
 st.set_page_config(
     page_title="Sweetviz Data Analysis App",
-    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -53,7 +52,7 @@ def load_and_validate_data(uploaded_file, max_rows=100000):
         return None, f"Error loading file: {e}"
 
 def display_dataset_info(df, title):
-    st.subheader(f"📊 {title}")
+    st.subheader(f" {title}")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric("📈 Rows", f"{len(df):,}")
@@ -106,7 +105,7 @@ def generate_sweetviz_report(report_obj, report_name, download_filename):
 def show_instructions():
     st.markdown(
         """
-## 🚀 How to proceed
+##  How to proceed
 
 - Use the sidebar to select an analysis type and upload the required dataset(s).  
 - When a dataset is uploaded, the app previews rows and shows key stats before generating a Sweetviz report.  
